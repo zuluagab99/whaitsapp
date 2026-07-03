@@ -647,7 +647,7 @@ export default function Builder() {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "#fff", display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif" }}>
       {/* Top bar */}
       <div style={{
         height: 56, display: "flex", alignItems: "center", gap: 12,
