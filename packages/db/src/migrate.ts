@@ -1,9 +1,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { sql } from "drizzle-orm";
 import { createDb } from "./index.js";
+
+config({ path: new URL("../../../../.env", import.meta.url) });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = join(__dirname, "..", "migrations");

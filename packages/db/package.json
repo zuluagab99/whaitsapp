@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@whaitsapp/shared": "workspace:*",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.38.2",
     "pg": "^8.13.1"
   },
