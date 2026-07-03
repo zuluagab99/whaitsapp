@@ -34,8 +34,8 @@ export class ModelRouter {
     return this;
   }
 
-  resolve(tier: ModelTier): { provider: LLMProvider; model: string } {
-    const route = this.config.routes[tier];
+  resolve(tier: ModelTier, override?: RouterConfig): { provider: LLMProvider; model: string } {
+    const route = (override ?? this.config).routes[tier];
     const provider = this.providers.get(route.provider);
     if (!provider) {
       throw new Error(`no provider registered for route ${tier} → ${route.provider}`);
@@ -43,8 +43,13 @@ export class ModelRouter {
     return { provider, model: route.model };
   }
 
-  async complete(tier: ModelTier, req: Omit<CompletionRequest, "model">): Promise<CompletionResponse> {
-    const { provider, model } = this.resolve(tier);
+  /** `override` lets callers route a single request per-tenant without a new router instance. */
+  async complete(
+    tier: ModelTier,
+    req: Omit<CompletionRequest, "model">,
+    override?: RouterConfig,
+  ): Promise<CompletionResponse> {
+    const { provider, model } = this.resolve(tier, override);
     return provider.complete({ ...req, model });
   }
 }

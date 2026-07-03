@@ -272,6 +272,30 @@ export const messageTemplates = pgTable(
 );
 
 /**
+ * Merchant-defined automations: trigger + actions stored as validated jsonb
+ * (see @whaitsapp/workflows). Evaluated in the worker on inbound messages and
+ * Shopify order events; first enabled match (by created_at) wins.
+ */
+export const workflows = pgTable(
+  "workflows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    trigger: jsonb("trigger").notNull(),
+    actions: jsonb("actions").notNull().default([]),
+    runCount: integer("run_count").notNull().default(0),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("workflows_tenant_idx").on(t.tenantId)],
+);
+
+/**
  * Idempotency ledger for at-least-once webhook delivery (Meta + Shopify).
  * Insert inside the same transaction as the side effect; unique violation → duplicate → no-op.
  * Not tenant-scoped: events can arrive before tenant resolution.

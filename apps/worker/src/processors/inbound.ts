@@ -1,9 +1,11 @@
 import { claimEvent, tenantTransaction, sql } from "@whaitsapp/db";
-import { runAgent } from "@whaitsapp/ai";
+import { runAgent, resolveRouterConfig } from "@whaitsapp/ai";
+import { renderTemplate, selectWorkflow } from "@whaitsapp/workflows";
 import { QUEUES, type InboundMessageJob, type OutboundMessageJob } from "@whaitsapp/shared";
 import type { ChatMessage as AiChatMessage } from "@whaitsapp/ai";
 import type { WorkerContext } from "../context.js";
 import { createToolExecutor } from "../toolExecutor.js";
+import { loadEnabledWorkflows, recordWorkflowRun } from "../workflowRuntime.js";
 
 const HISTORY_WINDOW = 20;
 
@@ -78,51 +80,90 @@ export async function processInboundMessage(ctx: WorkerContext, job: InboundMess
     const tenant = tenantRows.rows[0] as { name: string; settings: Record<string, unknown> } | undefined;
     const settings = tenant?.settings ?? {};
 
-    const executor = createToolExecutor(tx, {
-      tenantId: job.tenantId,
-      contactPhone: job.from,
-      conversationId,
-    });
+    // Merchant automations run before the AI: first enabled match wins.
+    const workflows = await loadEnabledWorkflows(tx, ctx.logger);
+    const event = { type: "message_received" as const, text: job.body ?? "" };
+    const workflow = selectWorkflow(workflows, event);
 
-    const agentResult = await runAgent(ctx.router, executor, {
-      botConfig: {
-        storeName: tenant?.name ?? "the store",
-        language: (settings["language"] as "es" | "en" | "auto") ?? "auto",
-        ...(typeof settings["persona"] === "string" ? { persona: settings["persona"] as string } : {}),
-        ...(typeof settings["policies"] === "string" ? { policies: settings["policies"] as string } : {}),
-      },
-      history,
-      inboundText: job.body ?? "[non-text message]",
-    });
+    const replies: Array<{ text: string; trigger: "bot" | "system" }> = [];
+    let handoff = false;
+    let runAi = !workflow; // no workflow matched → default AI path
+    let extraInstructions: string | undefined;
 
-    // Metering: every agent run is billable usage.
-    await tx.execute(
-      sql`INSERT INTO usage_events (tenant_id, kind, qty, meta)
-          VALUES (${job.tenantId}, 'llm_tokens', ${agentResult.usage.inputTokens + agentResult.usage.outputTokens},
-                  ${JSON.stringify({ conversationId, toolCalls: agentResult.toolCallsMade.length })}::jsonb)`,
-    );
-
-    if (agentResult.guardrailFindings.length) {
-      ctx.logger.warn(
-        { conversationId, findings: agentResult.guardrailFindings },
-        "guardrail findings on agent reply",
-      );
+    if (workflow) {
+      await recordWorkflowRun(tx, workflow.id);
+      for (const action of workflow.actions) {
+        if (action.type === "send_message") {
+          replies.push({ text: renderTemplate(action.text, event), trigger: "system" });
+        } else if (action.type === "handoff") {
+          handoff = true;
+          if (action.text) replies.push({ text: action.text, trigger: "system" });
+        } else {
+          runAi = true;
+          extraInstructions = action.instructions;
+        }
+      }
     }
 
-    if (!agentResult.reply) return null;
+    if (runAi && !handoff) {
+      const executor = createToolExecutor(tx, {
+        tenantId: job.tenantId,
+        contactPhone: job.from,
+        conversationId,
+      });
 
-    return { conversationId, reply: agentResult.reply, handoff: agentResult.handoff };
+      const agentResult = await runAgent(ctx.router, executor, {
+        botConfig: {
+          storeName: tenant?.name ?? "the store",
+          language: (settings["language"] as "es" | "en" | "auto") ?? "auto",
+          ...(typeof settings["persona"] === "string" ? { persona: settings["persona"] as string } : {}),
+          ...(typeof settings["policies"] === "string" ? { policies: settings["policies"] as string } : {}),
+        },
+        history,
+        inboundText: job.body ?? "[non-text message]",
+        // Model routing is per-tenant configuration (tenants.settings.llm).
+        routerConfig: resolveRouterConfig(settings["llm"]),
+        ...(extraInstructions !== undefined ? { extraInstructions } : {}),
+      });
+
+      // Metering: every agent run is billable usage.
+      await tx.execute(
+        sql`INSERT INTO usage_events (tenant_id, kind, qty, meta)
+            VALUES (${job.tenantId}, 'llm_tokens', ${agentResult.usage.inputTokens + agentResult.usage.outputTokens},
+                    ${JSON.stringify({ conversationId, toolCalls: agentResult.toolCallsMade.length })}::jsonb)`,
+      );
+
+      if (agentResult.guardrailFindings.length) {
+        ctx.logger.warn(
+          { conversationId, findings: agentResult.guardrailFindings },
+          "guardrail findings on agent reply",
+        );
+      }
+
+      if (agentResult.reply) replies.push({ text: agentResult.reply, trigger: "bot" });
+      handoff = handoff || agentResult.handoff;
+    }
+
+    if (handoff) {
+      // Pause the bot: a human owns the conversation until they close or release it.
+      await tx.execute(sql`UPDATE conversations SET status = 'human' WHERE id = ${conversationId}`);
+    }
+
+    if (!replies.length) return null;
+    return { conversationId, replies };
   });
 
   if (!result) return;
 
-  const outbound: OutboundMessageJob = {
-    tenantId: job.tenantId,
-    channelId: job.channelId,
-    to: job.from,
-    trigger: "bot",
-    conversationId: result.conversationId,
-    text: result.reply,
-  };
-  await ctx.enqueue(QUEUES.outboundMessages, "send", outbound);
+  for (const reply of result.replies) {
+    const outbound: OutboundMessageJob = {
+      tenantId: job.tenantId,
+      channelId: job.channelId,
+      to: job.from,
+      trigger: reply.trigger,
+      conversationId: result.conversationId,
+      text: reply.text,
+    };
+    await ctx.enqueue(QUEUES.outboundMessages, "send", outbound);
+  }
 }

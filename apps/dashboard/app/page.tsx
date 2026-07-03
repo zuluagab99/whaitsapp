@@ -8,6 +8,12 @@ export default function Home() {
         roadmap — this is the Phase 0 skeleton.
       </p>
       <ul>
+        <li>
+          <a href="/workflows">Workflows</a> — automate replies and order messages
+        </li>
+        <li>
+          <a href="/settings">AI model</a> — switch the LLM per tenant, no redeploy
+        </li>
         <li>Connect Shopify — OAuth install flow (Phase 3)</li>
         <li>Connect WhatsApp — Meta Embedded Signup (Phase 4)</li>
         <li>Conversations — live viewer + takeover (Phase 2)</li>

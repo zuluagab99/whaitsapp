@@ -7,6 +7,7 @@ import {
 } from "@whaitsapp/commerce";
 import { QUEUES, type CartRecoveryJob, type ShopifyEventJob } from "@whaitsapp/shared";
 import type { WorkerContext } from "../context.js";
+import { runOrderWorkflows } from "../workflowRuntime.js";
 
 /** Dispatch Shopify webhook events by topic, idempotently. */
 export async function processShopifyEvent(ctx: WorkerContext, job: ShopifyEventJob): Promise<void> {
@@ -91,6 +92,21 @@ export async function processShopifyEvent(ctx: WorkerContext, job: ShopifyEventJ
             );
           }
         }
+
+        // Merchant automations on new orders (e.g. thank-you / confirmation message).
+        const sends = await runOrderWorkflows(
+          tx,
+          ctx.logger,
+          job.tenantId,
+          {
+            type: "order_created",
+            ...(order.orderNumber !== null ? { orderNumber: order.orderNumber } : {}),
+            ...(order.totalPrice !== null ? { totalPrice: order.totalPrice } : {}),
+            ...(order.currency !== null ? { currency: order.currency } : {}),
+          },
+          order.phone,
+        );
+        for (const send of sends) await ctx.enqueue(QUEUES.outboundMessages, "send", send);
         return;
       }
 
@@ -104,6 +120,22 @@ export async function processShopifyEvent(ctx: WorkerContext, job: ShopifyEventJ
           sql`UPDATE orders_cache SET status = ${order.status}, updated_at = now()
               WHERE shopify_order_id = ${order.id}`,
         );
+
+        if (job.topic === SHOPIFY_WEBHOOK_TOPICS.ORDERS_FULFILLED) {
+          const sends = await runOrderWorkflows(
+            tx,
+            ctx.logger,
+            job.tenantId,
+            {
+              type: "order_fulfilled",
+              ...(order.orderNumber !== null ? { orderNumber: order.orderNumber } : {}),
+              ...(order.totalPrice !== null ? { totalPrice: order.totalPrice } : {}),
+              ...(order.currency !== null ? { currency: order.currency } : {}),
+            },
+            order.phone,
+          );
+          for (const send of sends) await ctx.enqueue(QUEUES.outboundMessages, "send", send);
+        }
         return;
       }
 

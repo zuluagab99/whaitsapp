@@ -3,6 +3,7 @@ import { MetaCloudProvider } from "@whaitsapp/channels";
 import { ShopifyClient } from "@whaitsapp/commerce";
 import { createDb, routingTransaction, schema, sql } from "@whaitsapp/db";
 import { buildApp } from "./app.js";
+import { createAdminStore } from "./adminStore.js";
 import { createQueues } from "./queues.js";
 import { QUEUES } from "@whaitsapp/shared";
 
@@ -25,6 +26,9 @@ const shopify = new ShopifyClient({
 });
 
 const app = buildApp({
+  ...(config.ADMIN_API_TOKEN
+    ? { admin: { token: config.ADMIN_API_TOKEN, store: createAdminStore(dbHandle.db) } }
+    : {}),
   meta,
   metaVerifyToken: config.META_WEBHOOK_VERIFY_TOKEN ?? "",
   shopify,

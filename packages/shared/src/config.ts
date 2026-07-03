@@ -29,6 +29,10 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
 
   DASHBOARD_URL: z.string().default("http://localhost:3000"),
+
+  // Bearer token guarding the admin/settings API (LLM config, workflows CRUD).
+  // Interim until dashboard auth lands; unset disables the admin routes entirely.
+  ADMIN_API_TOKEN: z.string().min(16).optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

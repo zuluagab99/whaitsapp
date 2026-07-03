@@ -11,16 +11,35 @@ Next.js · provider-agnostic LLM router (Anthropic/OpenAI).
 
 ```
 apps/
-  api/         Fastify core — webhook ingestion (Meta + Shopify), queue-first, ack fast
-  worker/      BullMQ processors — AI agent loop, outbound sends, cart recovery, catalog sync
-  dashboard/   Next.js merchant dashboard (skeleton)
+  api/         Fastify core — webhook ingestion (Meta + Shopify) + admin API (LLM config, workflows)
+  worker/      BullMQ processors — AI agent loop, workflows, outbound sends, cart recovery, catalog sync
+  dashboard/   Next.js merchant dashboard — workflow builder + LLM model picker
 packages/
   shared/      config, logger, crypto (AES-256-GCM secrets), queue contracts
   db/          Drizzle schema, migrations, RLS policies, idempotency ledger
   channels/    ChannelProvider abstraction + Meta WhatsApp Cloud API impl, 24h-window policy
   commerce/    Shopify client (OAuth, HMAC, GraphQL), webhook topics, cart-recovery logic
-  ai/          LLM router (Anthropic/OpenAI), agent loop, tools, guardrails, prompt builder
+  ai/          LLM router (Anthropic/OpenAI), model catalog, agent loop, tools, guardrails, prompts
+  workflows/   merchant automation engine — triggers (message keywords, order events) + actions
 ```
+
+## Merchant-facing configuration
+
+- **Switch the LLM without a redeploy:** each tenant picks its models from a validated catalog
+  (`MODEL_CATALOG` in `@whaitsapp/ai`) via the dashboard **AI model** page (or
+  `PUT /admin/tenants/:id/llm`). Stored in `tenants.settings.llm`, resolved per message by
+  `resolveRouterConfig()`; invalid settings fall back to platform defaults so a bad row never
+  takes a bot down.
+- **Automated workflows:** merchants define *trigger → actions* rules on the dashboard
+  **Workflows** page (or `/admin/tenants/:id/workflows`). Triggers: inbound message (optional
+  keyword match, any/all), order created, order fulfilled. Actions: send a templated message
+  (`{{order_number}}`-style variables), AI reply with extra instructions, hand off to a human.
+  First enabled match wins (ordered by creation); definitions are zod-validated at the API
+  boundary and re-validated in the worker. Order sends still pass `checkSendPolicy()` — workflows
+  can never bypass the 24h window or opt-in rules.
+- The admin API is guarded by `ADMIN_API_TOKEN` (routes are unregistered when unset). The
+  dashboard proxies through a server-side route so the token and tenant binding
+  (`DASHBOARD_TENANT_ID`) never reach the browser.
 
 ## Getting started
 

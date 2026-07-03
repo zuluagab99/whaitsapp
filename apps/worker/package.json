@@ -16,6 +16,7 @@
     "@whaitsapp/commerce": "workspace:*",
     "@whaitsapp/db": "workspace:*",
     "@whaitsapp/shared": "workspace:*",
+    "@whaitsapp/workflows": "workspace:*",
     "bullmq": "^5.34.3",
     "ioredis": "^5.4.2"
   },

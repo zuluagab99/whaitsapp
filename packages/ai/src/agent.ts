@@ -1,5 +1,5 @@
 import type { ChatMessage, CompletionUsage } from "./llm.js";
-import type { ModelRouter } from "./router.js";
+import type { ModelRouter, RouterConfig } from "./router.js";
 import { AGENT_TOOLS, type ToolExecutor } from "./tools.js";
 import { checkReplyGuardrails, type GuardrailFinding } from "./guardrails.js";
 import { buildSystemPrompt, type BotConfig } from "./prompt.js";
@@ -11,6 +11,10 @@ export interface AgentRunInput {
   /** Optional running summary of older history. */
   summary?: string;
   inboundText: string;
+  /** Per-tenant model routing (from tenants.settings.llm); platform defaults when absent. */
+  routerConfig?: RouterConfig;
+  /** Extra system-prompt instructions injected by a matched workflow's ai_reply action. */
+  extraInstructions?: string;
 }
 
 export interface AgentRunResult {
@@ -35,7 +39,10 @@ export async function runAgent(
   executor: ToolExecutor,
   input: AgentRunInput,
 ): Promise<AgentRunResult> {
-  const system = buildSystemPrompt(input.botConfig);
+  let system = buildSystemPrompt(input.botConfig);
+  if (input.extraInstructions) {
+    system += `\n\nAdditional instructions for this conversation:\n${input.extraInstructions}`;
+  }
   const messages: ChatMessage[] = [...input.history];
   if (input.summary) {
     messages.unshift({ role: "user", content: `[Conversation summary so far: ${input.summary}]` });
@@ -49,12 +56,11 @@ export async function runAgent(
   let handoffReason: string | undefined;
 
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-    const response = await router.complete("conversation", {
-      system,
-      messages,
-      tools: AGENT_TOOLS,
-      maxTokens: 1024,
-    });
+    const response = await router.complete(
+      "conversation",
+      { system, messages, tools: AGENT_TOOLS, maxTokens: 1024 },
+      input.routerConfig,
+    );
     usage.inputTokens += response.usage.inputTokens;
     usage.outputTokens += response.usage.outputTokens;
 

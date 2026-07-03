@@ -11,13 +11,16 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@whaitsapp/ai": "workspace:*",
     "@whaitsapp/channels": "workspace:*",
     "@whaitsapp/commerce": "workspace:*",
     "@whaitsapp/db": "workspace:*",
     "@whaitsapp/shared": "workspace:*",
+    "@whaitsapp/workflows": "workspace:*",
     "bullmq": "^5.34.3",
     "fastify": "^5.2.0",
-    "ioredis": "^5.4.2"
+    "ioredis": "^5.4.2",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

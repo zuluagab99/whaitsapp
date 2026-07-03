@@ -3,6 +3,7 @@ import type { Queue } from "bullmq";
 import { MetaCloudProvider } from "@whaitsapp/channels";
 import { ShopifyClient, parseShopifyWebhookHeaders } from "@whaitsapp/commerce";
 import { QUEUES, type InboundMessageJob, type ShopifyEventJob } from "@whaitsapp/shared";
+import { registerAdminRoutes, type AdminStore } from "./admin.js";
 
 export interface AppDeps {
   meta: MetaCloudProvider;
@@ -16,6 +17,8 @@ export interface AppDeps {
   resolveChannel: (phoneNumberId: string) => Promise<{ tenantId: string; channelId: string } | null>;
   /** Resolve a Shopify shop domain to a tenant. Returns null when unknown. */
   resolveShop: (shopDomain: string) => Promise<{ tenantId: string } | null>;
+  /** Admin/settings API (LLM config, workflows). Omit to leave the routes unregistered. */
+  admin?: { token: string; store: AdminStore };
 }
 
 declare module "fastify" {
@@ -44,6 +47,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  if (deps.admin) {
+    registerAdminRoutes(app, deps.admin.token, deps.admin.store);
+  }
 
   // --- Meta WhatsApp Cloud API webhooks ---
 
