@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: whaitsapp
+          POSTGRES_PASSWORD: whaitsapp
+          POSTGRES_DB: whaitsapp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U whaitsapp"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://whaitsapp:whaitsapp@localhost:5432/whaitsapp
+      TEST_DATABASE_URL: postgres://whaitsapp:whaitsapp@localhost:5432/whaitsapp
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: Apply migrations + RLS policies
+        run: pnpm --filter @whaitsapp/db generate && pnpm --filter @whaitsapp/db migrate
+      - name: Run tests (includes cross-tenant isolation suite)
+        run: pnpm test
