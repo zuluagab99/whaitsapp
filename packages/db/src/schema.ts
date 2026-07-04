@@ -35,7 +35,10 @@ export const users = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
+    name: text("name"),
+    /** admin | member | viewer */
     role: text("role").notNull().default("member"),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email), index("users_tenant_idx").on(t.tenantId)],
@@ -293,6 +296,31 @@ export const workflows = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("workflows_tenant_idx").on(t.tenantId)],
+);
+
+/** Execution record for every workflow match — the "under the hood" audit trail. */
+export const workflowRuns = pgTable(
+  "workflow_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
+    workflowName: text("workflow_name").notNull(),
+    /** success | failed */
+    status: text("status").notNull().default("success"),
+    triggerType: text("trigger_type"),
+    contactPhone: text("contact_phone"),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("workflow_runs_tenant_wf_idx").on(t.tenantId, t.workflowId, t.startedAt),
+    index("workflow_runs_tenant_ts_idx").on(t.tenantId, t.startedAt),
+  ],
 );
 
 /**

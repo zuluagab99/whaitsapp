@@ -2,12 +2,6 @@ import { sql, type Database } from "@whaitsapp/db";
 import { renderTemplate, selectWorkflow, workflowDefinitionSchema, type Workflow, type WorkflowEvent } from "@whaitsapp/workflows";
 import type { Logger, OutboundMessageJob } from "@whaitsapp/shared";
 
-/**
- * Load a tenant's enabled workflows inside an existing tenant-scoped
- * transaction, ordered by created_at (first match wins). Rows that fail
- * validation are skipped with a warning — one bad row must not break the
- * message pipeline.
- */
 export async function loadEnabledWorkflows(tx: Database, logger: Logger): Promise<Workflow[]> {
   const rows = await tx.execute(
     sql`SELECT id, name, enabled, trigger, actions FROM workflows WHERE enabled ORDER BY created_at`,
@@ -29,13 +23,6 @@ export async function loadEnabledWorkflows(tx: Database, logger: Logger): Promis
   return workflows;
 }
 
-/**
- * Evaluate order-event workflows (order_created / order_fulfilled) and build
- * the outbound sends. Only send_message actions apply to order events —
- * there is no inbound message to answer, so ai_reply/handoff are ignored.
- * The 24h-window/opt-in policy is still enforced downstream by the outbound
- * processor; this never bypasses checkSendPolicy.
- */
 export async function runOrderWorkflows(
   tx: Database,
   logger: Logger,
@@ -52,7 +39,6 @@ export async function runOrderWorkflows(
   const channel = channelRows.rows[0] as { id: string } | undefined;
   if (!channel) return [];
 
-  // Attach to the contact's open conversation when one exists so the send is persisted.
   const convRows = await tx.execute(
     sql`SELECT cv.id FROM conversations cv
         JOIN contacts ct ON ct.id = cv.contact_id
@@ -61,7 +47,15 @@ export async function runOrderWorkflows(
   );
   const conversationId = (convRows.rows[0] as { id: string } | undefined)?.id;
 
-  await recordWorkflowRun(tx, workflow.id);
+  const t0 = Date.now();
+  await recordWorkflowRun(tx, workflow.id, {
+    tenantId,
+    workflowName: workflow.name,
+    triggerType: event.type,
+    contactPhone: customerPhone,
+    status: "success",
+    durationMs: Date.now() - t0,
+  });
 
   const jobs: OutboundMessageJob[] = [];
   for (const action of workflow.actions) {
@@ -78,9 +72,31 @@ export async function runOrderWorkflows(
   return jobs;
 }
 
-/** Bump run stats for a matched workflow (same transaction as its side effects). */
-export async function recordWorkflowRun(tx: Database, workflowId: string): Promise<void> {
+/** Record a workflow match: bumps run_count on the workflow row and inserts a run log entry. */
+export async function recordWorkflowRun(
+  tx: Database,
+  workflowId: string,
+  opts: {
+    tenantId: string;
+    workflowName: string;
+    triggerType?: string;
+    contactPhone?: string;
+    status?: "success" | "failed";
+    error?: string;
+    durationMs?: number;
+  },
+): Promise<void> {
+  const status = opts.status ?? "success";
   await tx.execute(
     sql`UPDATE workflows SET run_count = run_count + 1, last_run_at = now() WHERE id = ${workflowId}`,
+  );
+  await tx.execute(
+    sql`INSERT INTO workflow_runs
+          (tenant_id, workflow_id, workflow_name, status, trigger_type, contact_phone, error, duration_ms, finished_at)
+        VALUES
+          (${opts.tenantId}, ${workflowId}, ${opts.workflowName},
+           ${status}, ${opts.triggerType ?? null}, ${opts.contactPhone ?? null},
+           ${opts.error ?? null}, ${opts.durationMs ?? null},
+           CASE WHEN ${status} IN ('success','failed') THEN now() ELSE NULL END)`,
   );
 }

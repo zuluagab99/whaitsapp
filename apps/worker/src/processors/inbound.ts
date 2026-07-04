@@ -91,7 +91,13 @@ export async function processInboundMessage(ctx: WorkerContext, job: InboundMess
     let extraInstructions: string | undefined;
 
     if (workflow) {
-      await recordWorkflowRun(tx, workflow.id);
+      await recordWorkflowRun(tx, workflow.id, {
+        tenantId: job.tenantId,
+        workflowName: workflow.name,
+        triggerType: "message_received",
+        contactPhone: job.from,
+        status: "success",
+      });
       for (const action of workflow.actions) {
         if (action.type === "send_message") {
           replies.push({ text: renderTemplate(action.text, event), trigger: "system" });
