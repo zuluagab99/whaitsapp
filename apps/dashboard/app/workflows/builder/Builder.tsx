@@ -3,12 +3,14 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   Handle,
   Position,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   addEdge,
   MarkerType,
   type Node,
@@ -19,6 +21,17 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useSearchParams, useRouter } from "next/navigation";
+import {
+  IconMessage,
+  IconCart,
+  IconPackage,
+  IconSend,
+  IconBot,
+  IconUser,
+  IconChevronLeft,
+  IconTrash,
+  IconGrip,
+} from "../../Icons";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
@@ -47,31 +60,55 @@ interface ApiWorkflow {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TRIGGER_DEFS = [
-  { type: "message_received" as TriggerType, label: "Customer message", icon: "💬", desc: "WhatsApp message arrives" },
-  { type: "order_created" as TriggerType, label: "New order", icon: "🛒", desc: "Shopify order is placed" },
-  { type: "order_fulfilled" as TriggerType, label: "Order shipped", icon: "📦", desc: "Order is fulfilled" },
+  {
+    type: "message_received" as TriggerType,
+    label: "Customer message",
+    Icon: IconMessage,
+    desc: "WhatsApp message arrives",
+    color: "#7c3aed",
+  },
+  {
+    type: "order_created" as TriggerType,
+    label: "New order",
+    Icon: IconCart,
+    desc: "Shopify order is placed",
+    color: "#1d4ed8",
+  },
+  {
+    type: "order_fulfilled" as TriggerType,
+    label: "Order shipped",
+    Icon: IconPackage,
+    desc: "Order is fulfilled",
+    color: "#0f766e",
+  },
 ];
 
 const ACTION_DEFS = [
-  { type: "send_message" as ActionType, label: "Send message", icon: "✉️", desc: "Send text to customer" },
-  { type: "ai_reply" as ActionType, label: "AI reply", icon: "🤖", desc: "Let the AI respond" },
-  { type: "handoff" as ActionType, label: "Hand off", icon: "🙋", desc: "Pass to a human agent" },
+  {
+    type: "send_message" as ActionType,
+    label: "Send message",
+    Icon: IconSend,
+    desc: "Send text to customer",
+    color: "#065f46",
+  },
+  {
+    type: "ai_reply" as ActionType,
+    label: "AI reply",
+    Icon: IconBot,
+    desc: "Let the AI respond",
+    color: "#1e40af",
+  },
+  {
+    type: "handoff" as ActionType,
+    label: "Hand off",
+    Icon: IconUser,
+    desc: "Pass to a human agent",
+    color: "#92400e",
+  },
 ];
 
 const ORDER_VARS = ["{{order_number}}", "{{total_price}}", "{{currency}}", "{{tracking_number}}"];
 const MSG_VARS = ["{{message}}"];
-
-const TRIGGER_COLORS: Record<TriggerType, string> = {
-  message_received: "#6d28d9",
-  order_created: "#1d4ed8",
-  order_fulfilled: "#0f766e",
-};
-
-const ACTION_COLORS: Record<ActionType, string> = {
-  send_message: "#065f46",
-  ai_reply: "#1e3a8a",
-  handoff: "#92400e",
-};
 
 // ─── Graph ↔ workflow serialisation ──────────────────────────────────────────
 
@@ -80,7 +117,7 @@ function workflowToGraph(wf: ApiWorkflow): { nodes: Node[]; edges: Edge[] } {
     {
       id: "trigger",
       type: "trigger",
-      position: { x: 180, y: 60 },
+      position: { x: 160, y: 60 },
       data: {
         triggerType: (wf.trigger.type as TriggerType) ?? "message_received",
         keywords: wf.trigger.keywords?.join(", ") ?? "",
@@ -93,7 +130,7 @@ function workflowToGraph(wf: ApiWorkflow): { nodes: Node[]; edges: Edge[] } {
     nodes.push({
       id: `action-${i}`,
       type: "action",
-      position: { x: 180, y: 60 + 160 * (i + 1) },
+      position: { x: 160, y: 60 + 170 * (i + 1) },
       data: {
         actionType: action.type as ActionType,
         text: action.type === "ai_reply" ? (action.instructions ?? "") : (action.text ?? ""),
@@ -119,7 +156,7 @@ function makeEdge(source: string, target: string): Edge {
     target,
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" },
-    style: { stroke: "#94a3b8", strokeWidth: 2 },
+    style: { stroke: "#cbd5e1", strokeWidth: 2 },
   };
 }
 
@@ -132,7 +169,6 @@ function graphToPayload(
   const triggerNode = nodes.find((n) => n.type === "trigger");
   if (!triggerNode) return null;
 
-  // Walk the chain from trigger
   const actionIds: string[] = [];
   let cur = triggerNode.id;
   const seen = new Set<string>();
@@ -146,10 +182,7 @@ function graphToPayload(
 
   const td = triggerNode.data as TriggerData;
   const isOrder = td.triggerType !== "message_received";
-  const keywords = td.keywords
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean);
+  const keywords = td.keywords.split(",").map((k) => k.trim()).filter(Boolean);
   const trigger = isOrder
     ? { type: td.triggerType }
     : { type: "message_received", ...(keywords.length ? { keywords, match: td.match } : {}) };
@@ -172,42 +205,57 @@ function graphToPayload(
 
 // ─── Custom nodes ─────────────────────────────────────────────────────────────
 
-const NODE_W = 220;
+const NODE_W = 260;
 
 function TriggerNode({ data, selected }: NodeProps) {
   const d = data as TriggerData;
   const def = TRIGGER_DEFS.find((t) => t.type === d.triggerType)!;
-  const color = TRIGGER_COLORS[d.triggerType];
   const kws = d.keywords.trim();
 
   return (
     <div style={{
       width: NODE_W,
-      borderRadius: 10,
-      border: `2px solid ${selected ? "#f59e0b" : color}`,
-      boxShadow: selected ? `0 0 0 3px ${color}33` : "0 2px 8px rgba(0,0,0,0.12)",
       background: "#fff",
+      border: `1.5px solid ${selected ? def.color : "#e2e8f0"}`,
+      borderRadius: 10,
+      boxShadow: selected
+        ? `0 0 0 3px ${def.color}26, 0 2px 8px rgba(0,0,0,0.08)`
+        : "0 1px 4px rgba(0,0,0,0.07)",
       fontFamily: "system-ui, sans-serif",
-      overflow: "hidden",
     }}>
-      <div style={{ background: color, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 16 }}>{def.icon}</span>
-        <div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Trigger</div>
-          <div style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{def.label}</div>
+      {/* drag hint */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "4px 0 0", color: "#cbd5e1" }}>
+        <IconGrip size={12} />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px 10px" }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 8, background: def.color,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <def.Icon size={17} color="#fff" />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", lineHeight: 1.2 }}>
+            Trigger
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", lineHeight: 1.3 }}>{def.label}</div>
         </div>
       </div>
-      <div style={{ padding: "8px 12px", minHeight: 28, fontSize: 12, color: "#6b7280" }}>
-        {d.triggerType === "message_received"
-          ? kws
-            ? <span>Keywords: <b style={{ color: "#374151" }}>{kws}</b> <span style={{ color: "#9ca3af" }}>({d.match})</span></span>
-            : <span style={{ color: "#9ca3af" }}>Matches every message</span>
-          : <span style={{ color: "#9ca3af" }}>{def.desc}</span>}
-      </div>
+      {(kws || d.triggerType === "message_received") && (
+        <div style={{
+          padding: "0 14px 10px 62px", fontSize: 11.5, color: "#64748b", lineHeight: 1.4,
+        }}>
+          {d.triggerType === "message_received"
+            ? kws
+              ? <>Keywords: <b style={{ color: "#334155" }}>{kws}</b> <span style={{ color: "#94a3b8" }}>({d.match})</span></>
+              : <span style={{ color: "#94a3b8" }}>Matches every message</span>
+            : <span style={{ color: "#94a3b8" }}>{def.desc}</span>}
+        </div>
+      )}
       <Handle
         type="source"
         position={Position.Bottom}
-        style={{ background: color, width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: def.color, width: 10, height: 10, border: "2px solid #fff" }}
       />
     </div>
   );
@@ -216,39 +264,49 @@ function TriggerNode({ data, selected }: NodeProps) {
 function ActionNode({ data, selected }: NodeProps) {
   const d = data as ActionData;
   const def = ACTION_DEFS.find((a) => a.type === d.actionType)!;
-  const color = ACTION_COLORS[d.actionType];
 
   return (
     <div style={{
       width: NODE_W,
-      borderRadius: 10,
-      border: `2px solid ${selected ? "#f59e0b" : color}`,
-      boxShadow: selected ? `0 0 0 3px ${color}33` : "0 2px 8px rgba(0,0,0,0.12)",
       background: "#fff",
+      border: `1.5px solid ${selected ? def.color : "#e2e8f0"}`,
+      borderRadius: 10,
+      boxShadow: selected
+        ? `0 0 0 3px ${def.color}26, 0 2px 8px rgba(0,0,0,0.08)`
+        : "0 1px 4px rgba(0,0,0,0.07)",
       fontFamily: "system-ui, sans-serif",
-      overflow: "hidden",
     }}>
       <Handle
         type="target"
         position={Position.Top}
-        style={{ background: color, width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: def.color, width: 10, height: 10, border: "2px solid #fff" }}
       />
-      <div style={{ background: color, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 16 }}>{def.icon}</span>
-        <div>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Action</div>
-          <div style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{def.label}</div>
+      <div style={{ display: "flex", justifyContent: "center", padding: "4px 0 0", color: "#cbd5e1" }}>
+        <IconGrip size={12} />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px 10px" }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 8, background: def.color,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <def.Icon size={17} color="#fff" />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", lineHeight: 1.2 }}>
+            Action
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", lineHeight: 1.3 }}>{def.label}</div>
         </div>
       </div>
-      <div style={{ padding: "8px 12px", minHeight: 28, fontSize: 12, color: "#6b7280" }}>
-        {d.text
-          ? <span style={{ color: "#374151" }}>{d.text.length > 60 ? d.text.slice(0, 60) + "…" : d.text}</span>
-          : <span style={{ color: "#d1d5db", fontStyle: "italic" }}>No content yet — configure on the right</span>}
-      </div>
+      {d.text && (
+        <div style={{ padding: "0 14px 10px 62px", fontSize: 11.5, color: "#64748b", lineHeight: 1.4 }}>
+          {d.text.length > 70 ? d.text.slice(0, 70) + "…" : d.text}
+        </div>
+      )}
       <Handle
         type="source"
         position={Position.Bottom}
-        style={{ background: color, width: 10, height: 10, border: "2px solid #fff" }}
+        style={{ background: def.color, width: 10, height: 10, border: "2px solid #fff" }}
       />
     </div>
   );
@@ -277,22 +335,32 @@ function ConfigPanel({
   return (
     <div style={{
       width: 280,
-      borderLeft: "1px solid #e5e7eb",
-      background: "#fafafa",
+      borderLeft: "1px solid #e2e8f0",
+      background: "#f8fafc",
       display: "flex",
       flexDirection: "column",
       fontFamily: "system-ui, sans-serif",
       overflowY: "auto",
     }}>
-      <div style={{ padding: "14px 16px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontWeight: 700, fontSize: 14, color: "#111" }}>
+      <div style={{
+        padding: "14px 16px", borderBottom: "1px solid #e2e8f0",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        background: "#fff",
+      }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>
           {isTrigger ? "Configure trigger" : "Configure action"}
         </span>
         {onDelete && (
           <button
             onClick={() => onDelete(node.id)}
-            style={{ background: "transparent", border: "1px solid #fca5a5", color: "#ef4444", borderRadius: 6, padding: "3px 8px", fontSize: 12, cursor: "pointer" }}
+            title="Delete block"
+            style={{
+              background: "transparent", border: "1px solid #fca5a5",
+              color: "#ef4444", borderRadius: 6, padding: "3px 8px",
+              fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+            }}
           >
+            <IconTrash size={12} />
             Delete
           </button>
         )}
@@ -307,8 +375,9 @@ function ConfigPanel({
                 {TRIGGER_DEFS.map((t) => (
                   <label key={t.type} style={{
                     display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
-                    border: `2px solid ${d.triggerType === t.type ? TRIGGER_COLORS[t.type] : "#e5e7eb"}`,
-                    borderRadius: 8, cursor: "pointer", background: d.triggerType === t.type ? `${TRIGGER_COLORS[t.type]}0d` : "#fff",
+                    border: `1.5px solid ${d.triggerType === t.type ? t.color : "#e2e8f0"}`,
+                    borderRadius: 8, cursor: "pointer",
+                    background: d.triggerType === t.type ? `${t.color}0d` : "#fff",
                   }}>
                     <input
                       type="radio"
@@ -316,12 +385,18 @@ function ConfigPanel({
                       value={t.type}
                       checked={d.triggerType === t.type}
                       onChange={() => set({ triggerType: t.type })}
-                      style={{ accentColor: TRIGGER_COLORS[t.type] }}
+                      style={{ accentColor: t.color }}
+                      className="nodrag"
                     />
-                    <span style={{ fontSize: 18 }}>{t.icon}</span>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 6, background: t.color,
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}>
+                      <t.Icon size={14} color="#fff" />
+                    </div>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111" }}>{t.label}</div>
-                      <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.desc}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{t.label}</div>
+                      <div style={{ fontSize: 10, color: "#94a3b8" }}>{t.desc}</div>
                     </div>
                   </label>
                 ))}
@@ -331,27 +406,33 @@ function ConfigPanel({
             {d.triggerType === "message_received" && (
               <>
                 <div>
-                  <label style={labelStyle}>Keywords <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
+                  <label style={labelStyle}>
+                    Keywords <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
+                  </label>
                   <input
+                    className="nodrag"
                     style={inputStyle}
                     placeholder="envío, tracking — comma-separated"
                     value={d.keywords ?? ""}
                     onChange={(e) => set({ keywords: e.target.value })}
                   />
-                  <p style={{ fontSize: 11, color: "#9ca3af", margin: "4px 0 0" }}>Leave empty to match every message.</p>
+                  <p style={{ fontSize: 11, color: "#94a3b8", margin: "4px 0 0" }}>
+                    Leave empty to match every message.
+                  </p>
                 </div>
 
                 {(d.keywords ?? "").trim() && (
                   <div>
                     <label style={labelStyle}>Match mode</label>
-                    <div style={{ display: "flex", border: "1px solid #d1d5db", borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ display: "flex", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
                       {(["any", "all"] as const).map((m) => (
                         <button
                           key={m}
                           onClick={() => set({ match: m })}
+                          className="nodrag"
                           style={{
-                            flex: 1, border: "none", padding: "7px 0", fontSize: 13, cursor: "pointer",
-                            background: d.match === m ? "#111" : "#fff",
+                            flex: 1, border: "none", padding: "7px 0", fontSize: 12, cursor: "pointer",
+                            background: d.match === m ? "#0f172a" : "#fff",
                             color: d.match === m ? "#fff" : "#374151",
                             fontWeight: d.match === m ? 600 : 400,
                           }}
@@ -373,8 +454,9 @@ function ConfigPanel({
                 {ACTION_DEFS.filter((a) => !isOrder || a.type === "send_message").map((a) => (
                   <label key={a.type} style={{
                     display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
-                    border: `2px solid ${d.actionType === a.type ? ACTION_COLORS[a.type] : "#e5e7eb"}`,
-                    borderRadius: 8, cursor: "pointer", background: d.actionType === a.type ? `${ACTION_COLORS[a.type]}0d` : "#fff",
+                    border: `1.5px solid ${d.actionType === a.type ? a.color : "#e2e8f0"}`,
+                    borderRadius: 8, cursor: "pointer",
+                    background: d.actionType === a.type ? `${a.color}0d` : "#fff",
                   }}>
                     <input
                       type="radio"
@@ -382,12 +464,18 @@ function ConfigPanel({
                       value={a.type}
                       checked={d.actionType === a.type}
                       onChange={() => set({ actionType: a.type, text: "" })}
-                      style={{ accentColor: ACTION_COLORS[a.type] }}
+                      style={{ accentColor: a.color }}
+                      className="nodrag"
                     />
-                    <span style={{ fontSize: 18 }}>{a.icon}</span>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 6, background: a.color,
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}>
+                      <a.Icon size={14} color="#fff" />
+                    </div>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111" }}>{a.label}</div>
-                      <div style={{ fontSize: 11, color: "#9ca3af" }}>{a.desc}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>{a.label}</div>
+                      <div style={{ fontSize: 10, color: "#94a3b8" }}>{a.desc}</div>
                     </div>
                   </label>
                 ))}
@@ -398,23 +486,31 @@ function ConfigPanel({
               <div>
                 <label style={labelStyle}>
                   {d.actionType === "handoff" ? "Message before handoff" : "Message text"}
-                  {d.actionType === "handoff" && <span style={{ fontWeight: 400, color: "#9ca3af" }}> (optional)</span>}
+                  {d.actionType === "handoff" && (
+                    <span style={{ fontWeight: 400, color: "#94a3b8" }}> (optional)</span>
+                  )}
                 </label>
                 <textarea
+                  className="nodrag"
                   style={textareaStyle}
                   rows={4}
-                  placeholder={d.actionType === "handoff" ? "e.g. Connecting you with a human agent…" : "Your message…"}
+                  placeholder={d.actionType === "handoff" ? "e.g. Connecting you with an agent…" : "Your message…"}
                   value={d.text ?? ""}
                   onChange={(e) => set({ text: e.target.value })}
                 />
                 {vars.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                    <span style={{ fontSize: 11, color: "#9ca3af", alignSelf: "center" }}>Insert:</span>
+                    <span style={{ fontSize: 11, color: "#94a3b8", alignSelf: "center" }}>Insert:</span>
                     {vars.map((v) => (
                       <button
                         key={v}
+                        className="nodrag"
                         onClick={() => set({ text: (d.text ?? "") + v })}
-                        style={{ background: "#f0fdf4", color: "#15803d", border: "1px solid #bbf7d0", borderRadius: 5, padding: "2px 6px", fontSize: 11, cursor: "pointer", fontFamily: "monospace" }}
+                        style={{
+                          background: "#f0fdf4", color: "#15803d",
+                          border: "1px solid #bbf7d0", borderRadius: 5,
+                          padding: "2px 6px", fontSize: 11, cursor: "pointer", fontFamily: "monospace",
+                        }}
                       >
                         {v}
                       </button>
@@ -426,8 +522,11 @@ function ConfigPanel({
 
             {d.actionType === "ai_reply" && (
               <div>
-                <label style={labelStyle}>Extra instructions <span style={{ fontWeight: 400, color: "#9ca3af" }}>(optional)</span></label>
+                <label style={labelStyle}>
+                  Extra instructions <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
+                </label>
                 <textarea
+                  className="nodrag"
                   style={textareaStyle}
                   rows={4}
                   placeholder="e.g. Always suggest the Premium plan when asked about pricing"
@@ -446,71 +545,87 @@ function ConfigPanel({
 // ─── Left palette ─────────────────────────────────────────────────────────────
 
 function Palette({
-  onSetTrigger,
-  onAddAction,
+  onAddNode,
 }: {
-  onSetTrigger: (type: TriggerType) => void;
-  onAddAction: (type: ActionType) => void;
+  onAddNode: (kind: "trigger" | "action", type: TriggerType | ActionType) => void;
 }) {
+  const onDragStart = (e: React.DragEvent, kind: string, type: string) => {
+    e.dataTransfer.setData("nodeKind", kind);
+    e.dataTransfer.setData("nodeType", type);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <div style={{
-      width: 200,
-      borderRight: "1px solid #e5e7eb",
+      width: 196,
+      borderRight: "1px solid #e2e8f0",
       background: "#f8fafc",
-      padding: "16px 12px",
+      padding: "14px 10px",
       overflowY: "auto",
       fontFamily: "system-ui, sans-serif",
+      flexShrink: 0,
+      userSelect: "none",
     }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Triggers</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+      <div style={sectionLabel}>Triggers</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 18 }}>
         {TRIGGER_DEFS.map((t) => (
-          <button
+          <div
             key={t.type}
-            onClick={() => onSetTrigger(t.type)}
-            style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-              background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
-              cursor: "pointer", textAlign: "left", transition: "border-color 0.15s",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = TRIGGER_COLORS[t.type])}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e5e7eb")}
-            title={`Set trigger: ${t.label}`}
+            draggable
+            onDragStart={(e) => onDragStart(e, "trigger", t.type)}
+            onClick={() => onAddNode("trigger", t.type)}
+            style={paletteItem}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.color)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e2e8f0")}
+            title={`Drag or click to add: ${t.label}`}
           >
-            <span style={{ fontSize: 18 }}>{t.icon}</span>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#111" }}>{t.label}</div>
-              <div style={{ fontSize: 10, color: "#9ca3af" }}>Set as trigger</div>
+            <div style={{
+              width: 28, height: 28, borderRadius: 6, background: t.color,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <t.Icon size={14} color="#fff" />
             </div>
-          </button>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: "#0f172a" }}>{t.label}</div>
+              <div style={{ fontSize: 10, color: "#94a3b8" }}>Trigger</div>
+            </div>
+          </div>
         ))}
       </div>
 
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Actions</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={sectionLabel}>Actions</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {ACTION_DEFS.map((a) => (
-          <button
+          <div
             key={a.type}
-            onClick={() => onAddAction(a.type)}
-            style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-              background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
-              cursor: "pointer", textAlign: "left",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = ACTION_COLORS[a.type])}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e5e7eb")}
-            title={`Add action: ${a.label}`}
+            draggable
+            onDragStart={(e) => onDragStart(e, "action", a.type)}
+            onClick={() => onAddNode("action", a.type)}
+            style={paletteItem}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = a.color)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e2e8f0")}
+            title={`Drag or click to add: ${a.label}`}
           >
-            <span style={{ fontSize: 18 }}>{a.icon}</span>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#111" }}>{a.label}</div>
-              <div style={{ fontSize: 10, color: "#9ca3af" }}>Add to canvas</div>
+            <div style={{
+              width: 28, height: 28, borderRadius: 6, background: a.color,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <a.Icon size={14} color="#fff" />
             </div>
-          </button>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: "#0f172a" }}>{a.label}</div>
+              <div style={{ fontSize: 10, color: "#94a3b8" }}>Action</div>
+            </div>
+          </div>
         ))}
       </div>
 
-      <div style={{ marginTop: 24, padding: "10px", background: "#f1f5f9", borderRadius: 8, fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>
-        <b>Tip:</b> Click a block to add it, then drag the <b>●</b> handles to connect them in order.
+      <div style={{
+        marginTop: 20, padding: "9px 10px", background: "#f1f5f9",
+        borderRadius: 7, fontSize: 10.5, color: "#64748b", lineHeight: 1.5,
+      }}>
+        Drag blocks onto the canvas, or click to append.
+        Connect them by dragging the <b>●</b> handles.
       </div>
     </div>
   );
@@ -519,16 +634,27 @@ function Palette({
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
 const labelStyle: React.CSSProperties = {
-  display: "block", fontSize: 11, fontWeight: 700, color: "#374151",
+  display: "block", fontSize: 10.5, fontWeight: 700, color: "#374151",
   textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6,
 };
 const inputStyle: React.CSSProperties = {
-  width: "100%", border: "1px solid #d1d5db", borderRadius: 7,
+  width: "100%", border: "1px solid #e2e8f0", borderRadius: 7,
   padding: "7px 10px", fontSize: 13, boxSizing: "border-box", outline: "none",
+  background: "#fff",
 };
 const textareaStyle: React.CSSProperties = {
-  width: "100%", border: "1px solid #d1d5db", borderRadius: 7, padding: "7px 10px",
+  width: "100%", border: "1px solid #e2e8f0", borderRadius: 7, padding: "7px 10px",
   fontSize: 13, boxSizing: "border-box", resize: "vertical", outline: "none",
+  background: "#fff",
+};
+const sectionLabel: React.CSSProperties = {
+  fontSize: 9.5, fontWeight: 700, color: "#94a3b8",
+  textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6,
+};
+const paletteItem: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 8, padding: "7px 9px",
+  background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8,
+  cursor: "grab", transition: "border-color 0.12s",
 };
 
 // ─── ID counter ───────────────────────────────────────────────────────────────
@@ -536,12 +662,14 @@ const textareaStyle: React.CSSProperties = {
 let nodeSeq = 1;
 const nextId = () => `action-${Date.now()}-${nodeSeq++}`;
 
-// ─── Builder ──────────────────────────────────────────────────────────────────
+// ─── Inner builder (needs ReactFlow context) ──────────────────────────────────
 
-export default function Builder() {
+function BuilderInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const editId = searchParams.get("id");
+  const { screenToFlowPosition } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -556,13 +684,12 @@ export default function Builder() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Seed initial trigger node or load existing workflow
   useEffect(() => {
     if (!editId) {
       setNodes([{
         id: "trigger",
         type: "trigger",
-        position: { x: 180, y: 60 },
+        position: { x: 160, y: 60 },
         data: { triggerType: "message_received", keywords: "", match: "any" } satisfies TriggerData,
       }]);
       return;
@@ -584,7 +711,12 @@ export default function Builder() {
   const onConnect: OnConnect = useCallback(
     (params: Connection) =>
       setEdges((eds) =>
-        addEdge({ ...params, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" }, style: { stroke: "#94a3b8", strokeWidth: 2 } }, eds),
+        addEdge({
+          ...params,
+          type: "smoothstep",
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" },
+          style: { stroke: "#cbd5e1", strokeWidth: 2 },
+        }, eds),
       ),
     [setEdges],
   );
@@ -601,30 +733,48 @@ export default function Builder() {
     setSelectedId(null);
   }, [setNodes, setEdges]);
 
-  const setTriggerType = useCallback((type: TriggerType) => {
-    setNodes((ns) =>
-      ns.map((n) =>
-        n.type === "trigger"
-          ? { ...n, data: { ...n.data, triggerType: type } }
-          : n,
-      ),
-    );
-    setSelectedId("trigger");
-  }, [setNodes]);
+  // Add a node — either at a specific position (drag-drop) or appended below last node
+  const addNode = useCallback((kind: "trigger" | "action", type: TriggerType | ActionType, position?: { x: number; y: number }) => {
+    if (kind === "trigger") {
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.type === "trigger" ? { ...n, data: { ...n.data, triggerType: type } } : n,
+        ),
+      );
+      setSelectedId("trigger");
+      return;
+    }
 
-  const addAction = useCallback((type: ActionType) => {
     const id = nextId();
-    // Find a good Y position: below last node
-    const maxY = nodes.reduce((m, n) => Math.max(m, n.position.y), 0);
-    const newNode: Node = {
+    const pos = position ?? (() => {
+      const maxY = nodes.reduce((m, n) => Math.max(m, n.position.y), 0);
+      return { x: 160, y: maxY + 170 };
+    })();
+
+    setNodes((ns) => [...ns, {
       id,
       type: "action",
-      position: { x: 180, y: maxY + 160 },
-      data: { actionType: type, text: "" } satisfies ActionData,
-    };
-    setNodes((ns) => [...ns, newNode]);
+      position: pos,
+      data: { actionType: type as ActionType, text: "" } satisfies ActionData,
+    }]);
     setSelectedId(id);
   }, [nodes, setNodes]);
+
+  // Drop from palette
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData("nodeKind") as "trigger" | "action";
+    const type = e.dataTransfer.getData("nodeType") as TriggerType | ActionType;
+    if (!kind || !type) return;
+
+    const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    addNode(kind, type, kind === "action" ? position : undefined);
+  }, [screenToFlowPosition, addNode]);
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
 
   const save = async () => {
     const payload = graphToPayload(name, enabled, nodes, edges);
@@ -650,30 +800,43 @@ export default function Builder() {
     <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "#fff", display: "flex", flexDirection: "column", fontFamily: "system-ui, sans-serif" }}>
       {/* Top bar */}
       <div style={{
-        height: 56, display: "flex", alignItems: "center", gap: 12,
-        padding: "0 20px", borderBottom: "1px solid #e5e7eb", background: "#fff", flexShrink: 0,
+        height: 52, display: "flex", alignItems: "center", gap: 12,
+        padding: "0 18px", borderBottom: "1px solid #e2e8f0",
+        background: "#fff", flexShrink: 0,
       }}>
         <a
           href="/workflows"
-          style={{ color: "#6b7280", textDecoration: "none", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}
+          style={{
+            color: "#64748b", textDecoration: "none", fontSize: 13,
+            display: "flex", alignItems: "center", gap: 4,
+          }}
         >
-          ← Workflows
+          <IconChevronLeft size={14} />
+          Workflows
         </a>
-        <div style={{ width: 1, height: 20, background: "#e5e7eb" }} />
+        <div style={{ width: 1, height: 18, background: "#e2e8f0" }} />
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          style={{ border: "none", outline: "none", fontSize: 15, fontWeight: 600, color: "#111", flex: 1, background: "transparent" }}
+          style={{
+            border: "none", outline: "none", fontSize: 14,
+            fontWeight: 600, color: "#0f172a", flex: 1, background: "transparent",
+          }}
           placeholder="Workflow name…"
         />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151", cursor: "pointer" }}>
-          <span style={{
-            display: "inline-block", width: 34, height: 18, borderRadius: 9,
-            background: enabled ? "#22c55e" : "#d1d5db", position: "relative", cursor: "pointer",
-          }} onClick={() => setEnabled((v) => !v)}>
+          <span
+            style={{
+              display: "inline-block", width: 32, height: 18, borderRadius: 9,
+              background: enabled ? "#22c55e" : "#cbd5e1", position: "relative", cursor: "pointer",
+              transition: "background 0.15s",
+            }}
+            onClick={() => setEnabled((v) => !v)}
+          >
             <span style={{
-              position: "absolute", top: 2, left: enabled ? 18 : 2, width: 14, height: 14,
-              borderRadius: "50%", background: "#fff", transition: "left 0.15s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+              position: "absolute", top: 2, left: enabled ? 16 : 2, width: 14, height: 14,
+              borderRadius: "50%", background: "#fff", transition: "left 0.15s",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
             }} />
           </span>
           {enabled ? "Active" : "Paused"}
@@ -681,7 +844,11 @@ export default function Builder() {
         <button
           onClick={save}
           disabled={saving}
-          style={{ background: "#111", color: "#fff", border: "none", borderRadius: 8, padding: "7px 18px", fontSize: 14, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}
+          style={{
+            background: "#0f172a", color: "#fff", border: "none",
+            borderRadius: 8, padding: "6px 16px", fontSize: 13, fontWeight: 600,
+            cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1,
+          }}
         >
           {saving ? "Saving…" : editId ? "Save changes" : "Create workflow"}
         </button>
@@ -689,9 +856,14 @@ export default function Builder() {
 
       {/* Canvas area */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <Palette onSetTrigger={setTriggerType} onAddAction={addAction} />
+        <Palette onAddNode={addNode} />
 
-        <div style={{ flex: 1, position: "relative" }}>
+        <div
+          ref={canvasRef}
+          style={{ flex: 1, position: "relative" }}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -701,22 +873,25 @@ export default function Builder() {
             onConnect={onConnect}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onPaneClick={() => setSelectedId(null)}
+            nodesDraggable
             fitView
-            fitViewOptions={{ padding: 0.3 }}
+            fitViewOptions={{ padding: 0.35 }}
             deleteKeyCode="Delete"
+            proOptions={{ hideAttribution: false }}
           >
-            <Background color="#e5e7eb" gap={20} />
+            <Background color="#e2e8f0" gap={24} size={1} />
             <Controls />
           </ReactFlow>
 
           {nodes.length <= 1 && (
             <div style={{
-              position: "absolute", bottom: 80, left: "50%", transform: "translateX(-50%)",
-              background: "rgba(255,255,255,0.95)", border: "1px dashed #d1d5db", borderRadius: 10,
-              padding: "12px 20px", fontSize: 13, color: "#6b7280", pointerEvents: "none", textAlign: "center",
-              backdropFilter: "blur(4px)", maxWidth: 320,
+              position: "absolute", bottom: 72, left: "50%", transform: "translateX(-50%)",
+              background: "rgba(255,255,255,0.95)", border: "1px dashed #cbd5e1", borderRadius: 10,
+              padding: "10px 18px", fontSize: 12.5, color: "#64748b", pointerEvents: "none",
+              textAlign: "center", backdropFilter: "blur(4px)", maxWidth: 300,
+              whiteSpace: "nowrap",
             }}>
-              ← Add action blocks from the palette, then drag the <b>●</b> handle on the trigger down to connect them
+              Drag or click an action from the left panel to add it
             </div>
           )}
         </div>
@@ -732,8 +907,8 @@ export default function Builder() {
 
       {toast && (
         <div style={{
-          position: "fixed", bottom: "1.5rem", right: "1.5rem", zIndex: 100,
-          background: toast.err ? "#ef4444" : "#111", color: "#fff",
+          position: "fixed", bottom: "1.5rem", right: "1.5rem", zIndex: 200,
+          background: toast.err ? "#ef4444" : "#0f172a", color: "#fff",
           padding: "10px 16px", borderRadius: 8, fontSize: 13,
           boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
         }}>
@@ -741,5 +916,15 @@ export default function Builder() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Public export — wraps inner component with ReactFlowProvider ─────────────
+
+export default function Builder() {
+  return (
+    <ReactFlowProvider>
+      <BuilderInner />
+    </ReactFlowProvider>
   );
 }
