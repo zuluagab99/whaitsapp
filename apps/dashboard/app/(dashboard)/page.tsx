@@ -138,7 +138,7 @@ export default function DashboardPage() {
 
         {/* Brain */}
         <Card>
-          <Eyebrow>🧠 Brain</Eyebrow>
+          <Eyebrow>Brain</Eyebrow>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: "0.75rem", color: "var(--text-3)", marginBottom: 3 }}>Thinking</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -165,7 +165,7 @@ export default function DashboardPage() {
 
         {/* Workflows */}
         <Card>
-          <Eyebrow>⚡ Workflows</Eyebrow>
+          <Eyebrow>Workflows</Eyebrow>
           {stats?.workflows ? (
             <>
               <BigNumber n={stats.workflows.active} label="active" />
@@ -195,7 +195,7 @@ export default function DashboardPage() {
 
         {/* Conversations */}
         <Card style={{ opacity: 0.6 }}>
-          <Eyebrow>💬 Conversations</Eyebrow>
+          <Eyebrow>Conversations</Eyebrow>
           <div style={{ fontSize: "0.85rem", color: "var(--text-2)", lineHeight: 1.5 }}>
             Live viewer, human takeover, and message history.
           </div>

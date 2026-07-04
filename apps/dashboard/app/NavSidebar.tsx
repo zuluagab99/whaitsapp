@@ -2,12 +2,13 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { IconHome, IconMessage, IconZap, IconCpu } from "./Icons";
 
 const NAV = [
-  { href: "/", icon: "🏠", label: "Dashboard", exact: true },
-  { href: "/conversations", icon: "💬", label: "Conversations", soon: true },
-  { href: "/workflows", icon: "⚡", label: "Workflows" },
-  { href: "/brain", icon: "🧠", label: "Brain" },
+  { href: "/", icon: IconHome, label: "Dashboard", exact: true },
+  { href: "/conversations", icon: IconMessage, label: "Conversations", soon: true },
+  { href: "/workflows", icon: IconZap, label: "Workflows" },
+  { href: "/brain", icon: IconCpu, label: "Brain" },
 ];
 
 export default function NavSidebar() {
@@ -28,7 +29,6 @@ export default function NavSidebar() {
       position: "sticky",
       top: 0,
     }}>
-      {/* Brand */}
       <div style={{ padding: "20px 16px 12px", borderBottom: "1px solid var(--border)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{
@@ -46,46 +46,36 @@ export default function NavSidebar() {
         </div>
       </div>
 
-      {/* Nav */}
       <nav style={{ padding: "12px 10px", flex: 1 }}>
-        {NAV.map(({ href, icon, label, exact, soon }) => {
+        {NAV.map(({ href, icon: Icon, label, exact, soon }) => {
           const active = !soon && isActive(href, exact);
+          const itemStyle: React.CSSProperties = {
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "8px 10px", borderRadius: 8, marginBottom: 2,
+            fontSize: 14,
+            background: active ? "var(--accent)" : "transparent",
+            color: active ? "#fff" : soon ? "var(--text-3)" : "var(--text-2)",
+            fontWeight: active ? 600 : 400,
+            opacity: soon ? 0.45 : 1,
+            cursor: soon ? "not-allowed" : "pointer",
+            transition: "background 0.1s, color 0.1s",
+            textDecoration: "none",
+          };
+
           return soon ? (
-            <div
-              key={href}
-              title={`${label} — Phase 2`}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 10px", borderRadius: 8, marginBottom: 2,
-                opacity: 0.4, cursor: "not-allowed",
-                fontSize: 14, color: "var(--text-2)",
-              }}
-            >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
+            <div key={href} title={`${label} — Phase 2`} style={itemStyle}>
+              <Icon size={16} />
               <span>{label}</span>
             </div>
           ) : (
-            <Link
-              key={href}
-              href={href}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 10px", borderRadius: 8, marginBottom: 2,
-                textDecoration: "none", fontSize: 14,
-                background: active ? "var(--accent)" : "transparent",
-                color: active ? "#fff" : "var(--text-2)",
-                fontWeight: active ? 600 : 400,
-                transition: "background 0.1s, color 0.1s",
-              }}
-            >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>{icon}</span>
+            <Link key={href} href={href} style={itemStyle}>
+              <Icon size={16} />
               <span>{label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* Bottom hint */}
       <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
         <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "monospace" }}>
           v0.1.0 · dev

@@ -84,9 +84,7 @@ export default function BrainPage() {
     <div style={{ maxWidth: 680 }}>
       {/* Header */}
       <div style={{ marginBottom: "2rem" }}>
-        <h1 style={{ margin: "0 0 4px", fontSize: "1.25rem", fontWeight: 700 }}>
-          🧠 Brain
-        </h1>
+        <h1 style={{ margin: "0 0 4px", fontSize: "1.25rem", fontWeight: 700 }}>Brain</h1>
         <p style={{ margin: 0, color: "var(--text-2)", fontSize: "0.9rem" }}>
           The models that power the AI agent. Changes apply to the next message — no redeploy.
         </p>
